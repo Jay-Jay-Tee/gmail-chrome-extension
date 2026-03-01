@@ -3,12 +3,14 @@ const SUMMARY_ID = "inboxzero-ai-summary";
 const CATEGORY_ID = "inboxzero-ai-category";
 const SPAM_ID = "inboxzero-ai-spam";
 const TEMPLATE_PICKER_ID = "inboxzero-ai-template-picker";
+const ACTION_CONTAINER_ID = "inboxzero-ai-action-buttons";
 
 function createButton(label, action) {
   const button = document.createElement("button");
   button.type = "button";
   button.className = "inboxzero-ai-btn";
   button.dataset.inboxzeroAction = action;
+  button.dataset.inboxzeroRole = "action-button";
   button.textContent = label;
   button.style.marginLeft = "8px";
   button.style.padding = "6px 10px";
@@ -20,26 +22,45 @@ function createButton(label, action) {
   return button;
 }
 
-function ensureActionButtons(toolbar, handlers) {
+function ensureActionButtons(toolbar, handlers, enabledFeatures = {}) {
   if (!toolbar) {
     return;
   }
 
-  if (toolbar.querySelector('[data-inboxzero-action="summarize"]')) {
-    return;
+  let container = toolbar.querySelector(`#${ACTION_CONTAINER_ID}`);
+  if (!container) {
+    container = document.createElement("div");
+    container.id = ACTION_CONTAINER_ID;
+    container.style.display = "inline-flex";
+    container.style.alignItems = "center";
+    toolbar.appendChild(container);
   }
 
-  const summarizeBtn = createButton("Summarize", "summarize");
-  const categorizeBtn = createButton("Categorize", "categorize");
-  const spamCheckBtn = createButton("Spam Check", "spamCheck");
+  const actionConfig = [
+    { action: "summarize", label: "Summarize", onClick: handlers.onSummarizeClick },
+    { action: "categorize", label: "Categorize", onClick: handlers.onCategorizeClick },
+    { action: "spamCheck", label: "Spam Check", onClick: handlers.onSpamCheckClick }
+  ];
 
-  summarizeBtn.addEventListener("click", handlers.onSummarizeClick);
-  categorizeBtn.addEventListener("click", handlers.onCategorizeClick);
-  spamCheckBtn.addEventListener("click", handlers.onSpamCheckClick);
+  actionConfig.forEach(({ action, label, onClick }) => {
+    const enabled = enabledFeatures[action] !== false;
+    const existing = container.querySelector(`[data-inboxzero-action="${action}"]`);
 
-  toolbar.appendChild(summarizeBtn);
-  toolbar.appendChild(categorizeBtn);
-  toolbar.appendChild(spamCheckBtn);
+    if (!enabled && existing) {
+      existing.remove();
+      return;
+    }
+
+    if (enabled && !existing) {
+      const button = createButton(label, action);
+      button.addEventListener("click", onClick);
+      container.appendChild(button);
+    }
+  });
+
+  if (!container.querySelector('[data-inboxzero-role="action-button"]')) {
+    container.remove();
+  }
 }
 
 function ensureTemplateButton(composeToolbar, onTemplatesClick) {
