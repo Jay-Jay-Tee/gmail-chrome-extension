@@ -20,12 +20,40 @@
     removeTemplatePicker
   } = uiModule;
 
+  const DEFAULT_TOGGLES = {
+    summarize: true,
+    categorize: true,
+    spamCheck: true
+  };
+
+  let featureToggles = { ...DEFAULT_TOGGLES };
+
   let lastContext = {
     subject: "",
     sender: "",
     bodyText: "",
     emailText: ""
   };
+
+  function normalizeToggles(raw) {
+    return {
+      summarize: typeof raw?.autoSummarize === "boolean" ? raw.autoSummarize : DEFAULT_TOGGLES.summarize,
+      categorize: typeof raw?.autoCategorize === "boolean" ? raw.autoCategorize : DEFAULT_TOGGLES.categorize,
+      spamCheck: typeof raw?.spamAlerts === "boolean" ? raw.spamAlerts : DEFAULT_TOGGLES.spamCheck
+    };
+  }
+
+  function loadFeatureToggles() {
+    return new Promise((resolve) => {
+      chrome.storage.sync.get(["autoSummarize", "autoCategorize", "spamAlerts"], (result) => {
+        if (chrome.runtime.lastError) {
+          resolve({ ...DEFAULT_TOGGLES });
+          return;
+        }
+        resolve(normalizeToggles(result || {}));
+      });
+    });
+  }
 
   function getCurrentEmailContext() {
     const data = extractEmailData();
@@ -53,6 +81,10 @@
   }
 
   async function onSummarizeClick() {
+    if (!featureToggles.summarize) {
+      return;
+    }
+
     const emailData = getCurrentEmailContext();
     if (!emailData.emailText) {
       return;
@@ -71,6 +103,10 @@
   }
 
   async function onCategorizeClick() {
+    if (!featureToggles.categorize) {
+      return;
+    }
+
     const emailData = getCurrentEmailContext();
     if (!emailData.emailText) {
       return;
@@ -83,6 +119,10 @@
   }
 
   async function onSpamCheckClick() {
+    if (!featureToggles.spamCheck) {
+      return;
+    }
+
     const emailData = getCurrentEmailContext();
     if (!emailData.emailText) {
       return;
@@ -136,6 +176,10 @@
         onSummarizeClick,
         onCategorizeClick,
         onSpamCheckClick
+      }, {
+        summarize: featureToggles.summarize,
+        categorize: featureToggles.categorize,
+        spamCheck: featureToggles.spamCheck
       });
     }
 
@@ -153,14 +197,23 @@
     const root = ensureResultRoot(emailData.subjectElement, emailData.bodyElement);
 
     if (message.type === "SUMMARY_RESULT") {
+      if (!featureToggles.summarize) {
+        return;
+      }
       renderSummary(root, message.bullets || []);
     }
 
     if (message.type === "CATEGORY_RESULT") {
+      if (!featureToggles.categorize) {
+        return;
+      }
       renderCategory(root, message.category || "Unknown");
     }
 
     if (message.type === "SPAM_RESULT") {
+      if (!featureToggles.spamCheck) {
+        return;
+      }
       renderSpamWarning(root, {
         score: message.score ?? 0,
         flags: message.flags || []
@@ -168,7 +221,37 @@
     }
   });
 
+  featureToggles = await loadFeatureToggles();
   injectIfReady();
+
+  chrome.storage.onChanged.addListener((changes, areaName) => {
+    if (areaName !== "sync") {
+      return;
+    }
+
+    if (Object.prototype.hasOwnProperty.call(changes, "autoSummarize")) {
+      featureToggles.summarize =
+        typeof changes.autoSummarize.newValue === "boolean"
+          ? changes.autoSummarize.newValue
+          : DEFAULT_TOGGLES.summarize;
+    }
+
+    if (Object.prototype.hasOwnProperty.call(changes, "autoCategorize")) {
+      featureToggles.categorize =
+        typeof changes.autoCategorize.newValue === "boolean"
+          ? changes.autoCategorize.newValue
+          : DEFAULT_TOGGLES.categorize;
+    }
+
+    if (Object.prototype.hasOwnProperty.call(changes, "spamAlerts")) {
+      featureToggles.spamCheck =
+        typeof changes.spamAlerts.newValue === "boolean"
+          ? changes.spamAlerts.newValue
+          : DEFAULT_TOGGLES.spamCheck;
+    }
+
+    injectIfReady();
+  });
 
   const observer = new MutationObserver(() => {
     injectIfReady();
