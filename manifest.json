@@ -6,7 +6,8 @@
   "permissions": ["storage", "activeTab", "scripting"],
   "host_permissions": ["https://mail.google.com/*"],
   "background": {
-    "service_worker": "background/service-worker.js"
+    "service_worker": "background/service-worker.js",
+    "type": "module"
   },
   "action": {
     "default_popup": "popup/popup.html",
@@ -19,6 +20,12 @@
       "matches": ["https://mail.google.com/*"],
       "js": ["content/content.js"],
       "run_at": "document_idle"
+    }
+  ],
+  "web_accessible_resources": [
+    {
+      "resources": ["content/gmail-parser.js", "content/ui-injector.js"],
+      "matches": ["https://mail.google.com/*"]
     }
   ]
 }
