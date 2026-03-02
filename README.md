@@ -1,6 +1,5 @@
-# InboxZero AI
-
 # 📬 InboxZero AI  
+
 ### AI-Powered Gmail Intelligence Extension  
 Summarization • Categorization • Spam Scoring
 
