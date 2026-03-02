@@ -1,209 +1,205 @@
+// ============================================================
+// InboxZero AI — Content Script
+// Bridge between Gmail DOM and the background service worker
+// ============================================================
+
 (async () => {
   const parserModule = await import(chrome.runtime.getURL("content/gmail-parser.js"));
   const uiModule = await import(chrome.runtime.getURL("content/ui-injector.js"));
 
   const {
-    extractEmailData,
-    getEmailToolbar,
-    getComposeBody,
-    getComposeToolbar
+    extractEmailData, getEmailToolbar, getComposeBody,
+    getComposeToolbar, getMessageIdFromUrl
   } = parserModule;
 
   const {
-    ensureActionButtons,
-    removeActionButtons,
-    ensureTemplateButton,
-    ensureResultRoot,
-    renderSummary,
-    renderCategory,
-    renderSpamWarning,
-    renderTemplatePicker,
-    removeTemplatePicker,
+    ensureActionButtons, removeActionButtons, ensureTemplateButton,
+    ensureResultRoot, renderSummary, renderCategory, renderSpamWarning,
+    renderImportance, renderTemplatePicker, removeTemplatePicker,
     cleanupAllInjectedElements
   } = uiModule;
 
   const DEFAULT_TOGGLES = {
-    summarize: true,
-    categorize: true,
-    spamCheck: true
+    summarize: true, categorize: true, spamCheck: true, important: false
   };
 
   let featureToggles = { ...DEFAULT_TOGGLES };
+  let lastContext = { subject: "", sender: "", bodyText: "", emailText: "" };
 
-  let lastContext = {
-    subject: "",
-    sender: "",
-    bodyText: "",
-    emailText: ""
-  };
-
+  // -------------------------------------------------------
+  // Storage helpers
+  // -------------------------------------------------------
   function normalizeToggles(raw) {
     return {
-      summarize: typeof raw?.autoSummarize === "boolean" ? raw.autoSummarize : DEFAULT_TOGGLES.summarize,
+      summarize:  typeof raw?.autoSummarize  === "boolean" ? raw.autoSummarize  : DEFAULT_TOGGLES.summarize,
       categorize: typeof raw?.autoCategorize === "boolean" ? raw.autoCategorize : DEFAULT_TOGGLES.categorize,
-      spamCheck: typeof raw?.spamAlerts === "boolean" ? raw.spamAlerts : DEFAULT_TOGGLES.spamCheck
+      spamCheck:  typeof raw?.spamAlerts     === "boolean" ? raw.spamAlerts     : DEFAULT_TOGGLES.spamCheck,
+      important:  typeof raw?.autoImportant  === "boolean" ? raw.autoImportant  : DEFAULT_TOGGLES.important,
     };
   }
 
   function loadFeatureToggles() {
-    return new Promise((resolve) => {
-      chrome.storage.sync.get(["autoSummarize", "autoCategorize", "spamAlerts"], (result) => {
-        if (chrome.runtime.lastError) {
-          resolve({ ...DEFAULT_TOGGLES });
-          return;
-        }
+    return new Promise(resolve => {
+      chrome.storage.sync.get(["autoSummarize", "autoCategorize", "spamAlerts", "autoImportant"], result => {
+        if (chrome.runtime.lastError) { resolve({ ...DEFAULT_TOGGLES }); return; }
         resolve(normalizeToggles(result || {}));
       });
     });
   }
 
+  // -------------------------------------------------------
+  // Context helpers
+  // -------------------------------------------------------
   function getCurrentEmailContext() {
     const data = extractEmailData();
     if (data.isOpenEmailView) {
       lastContext = {
-        subject: data.subject,
-        sender: data.sender,
-        bodyText: data.bodyText,
-        emailText: data.emailText
+        subject: data.subject, sender: data.sender,
+        bodyText: data.bodyText, emailText: data.emailText
       };
     }
     return data;
   }
 
+  // -------------------------------------------------------
+  // Extension alive guard
+  // -------------------------------------------------------
   function isExtensionAlive() {
-    try {
-      return !!chrome.runtime?.id;
-    } catch {
-      return false;
-    }
+    try { return !!chrome.runtime?.id; } catch { return false; }
   }
 
   function sendMessage(message) {
-    return new Promise((resolve) => {
+    return new Promise(resolve => {
       if (!isExtensionAlive()) {
-        // Extension was reloaded — stop all timers and observers silently
         clearTimeout(window.__inboxzeroTimer);
         observer?.disconnect();
         resolve({ error: "Extension context invalidated. Please refresh the page." });
         return;
       }
       try {
-        chrome.runtime.sendMessage(message, (response) => {
+        chrome.runtime.sendMessage(message, response => {
           if (chrome.runtime.lastError) {
             resolve({ error: chrome.runtime.lastError.message });
             return;
           }
           resolve(response || {});
         });
-      } catch {
-        resolve({ error: "Extension context invalidated." });
-      }
+      } catch { resolve({ error: "Extension context invalidated." }); }
     });
   }
 
-  async function onSummarizeClick() {
-    if (!featureToggles.summarize) {
-      return;
-    }
+  // -------------------------------------------------------
+  // URL-based email open check (reliable vs DOM)
+  // -------------------------------------------------------
+  function isEmailOpen() {
+    const hash = window.location.hash;
+    const parts = hash.replace('#', '').split('/');
+    return parts.length >= 2 && parts[1].length > 6;
+  }
 
+  // -------------------------------------------------------
+  // Button click handlers
+  // -------------------------------------------------------
+  async function onSummarizeClick() {
+    if (!featureToggles.summarize) return;
     const emailData = getCurrentEmailContext();
-    // Fallback to lastContext if current extraction missed the body
     const text = emailData.bodyText || emailData.emailText || lastContext.bodyText || lastContext.emailText;
+    const root = ensureResultRoot(emailData.subjectElement, emailData.bodyElement);
     if (!text) {
-      const root = ensureResultRoot(emailData.subjectElement, emailData.bodyElement);
       if (root) renderSummary(root, ["Could not read email content. Try clicking inside the email first."]);
       return;
     }
-
-    const response = await sendMessage({ type: "SUMMARIZE", text: text });
-    const root = ensureResultRoot(emailData.subjectElement, emailData.bodyElement);
-
+    if (root) renderSummary(root, ["Summarizing..."]);
+    const response = await sendMessage({ type: "SUMMARIZE", text });
+    if (!root) return;
     if (response?.bullets) {
       renderSummary(root, response.bullets);
-      return;
+    } else {
+      const isNoKey = response?.error?.includes("NO_API_KEY");
+      renderSummary(root, [isNoKey
+        ? "⚠️ No API key set. Open the extension popup and save your Gemini key."
+        : `Error: ${response?.error || "Unknown error"}`
+      ]);
     }
-
-    const errorMsg = response?.error || "Unable to summarize this email right now.";
-    const isNoKey = errorMsg.includes("NO_API_KEY");
-    renderSummary(root, [isNoKey ? "⚠️ No API key set. Open the extension popup and save your Gemini API key." : `Error: ${errorMsg}`]);
   }
 
   async function onCategorizeClick() {
-    if (!featureToggles.categorize) {
-      return;
-    }
-
+    if (!featureToggles.categorize) return;
     const emailData = getCurrentEmailContext();
-    if (!emailData.emailText) {
-      return;
-    }
-
-    const response = await sendMessage({ type: "CATEGORIZE", text: emailData.bodyText || emailData.emailText });
+    const text = emailData.bodyText || emailData.emailText;
+    if (!text) return;
     const root = ensureResultRoot(emailData.subjectElement, emailData.bodyElement);
-    renderCategory(root, response?.category || "Unknown");
+    if (root) renderCategory(root, "Analyzing...", false);
+    const response = await sendMessage({
+      type: "CATEGORIZE",
+      text,
+      sender: emailData.sender,
+      messageId: emailData.messageId
+    });
+    if (root) renderCategory(root, response?.category || "Unknown", response?.labelApplied);
   }
 
   async function onSpamCheckClick() {
-    if (!featureToggles.spamCheck) {
-      return;
-    }
-
+    if (!featureToggles.spamCheck) return;
     const emailData = getCurrentEmailContext();
-    if (!emailData.emailText) {
-      return;
-    }
-
+    const text = emailData.bodyText || emailData.emailText;
+    if (!text) return;
+    const root = ensureResultRoot(emailData.subjectElement, emailData.bodyElement);
+    if (root) renderSpamWarning(root, { score: 0, reasoning: "Analyzing..." }, null);
     const response = await sendMessage({
       type: "SPAM_CHECK",
       sender: emailData.sender,
-      text: emailData.bodyText || emailData.emailText
+      subject: emailData.subject,
+      text
     });
-
-    const root = ensureResultRoot(emailData.subjectElement, emailData.bodyElement);
-    renderSpamWarning(root, response || { score: 0, flags: [] });
+    if (!root) return;
+    // Provide delete callback using message ID
+    const onDelete = emailData.messageId
+      ? () => sendMessage({ type: "TRASH_MESSAGE", messageId: emailData.messageId })
+      : null;
+    renderSpamWarning(root, response || { score: 0, flags: [] }, onDelete);
   }
 
   async function onTemplatesClick() {
     const composeToolbar = getComposeToolbar();
     const composeBody = getComposeBody();
-    if (!composeToolbar || !composeBody) {
-      return;
-    }
-
+    if (!composeToolbar || !composeBody) return;
     const response = await sendMessage({ type: "GET_TEMPLATES" });
     const templates = Array.isArray(response?.templates) ? response.templates : [];
-
-    if (templates.length === 0) {
-      removeTemplatePicker(composeToolbar);
-      return;
-    }
-
+    if (templates.length === 0) { removeTemplatePicker(composeToolbar); return; }
     renderTemplatePicker(composeToolbar, templates, async (template) => {
       const body = template?.body || "";
-      if (!body) {
-        return;
-      }
-
+      if (!body) return;
       composeBody.focus();
       document.execCommand("insertText", false, body);
-      await sendMessage({ type: "INSERT_TEMPLATE", body });
     });
   }
 
-  let isInjecting = false;
-  let observer = null;
-
-  function isEmailOpen() {
-    // Gmail URLs for open emails look like #inbox/1234abc or #all/1234abc
-    // Inbox list is just #inbox or #search/foo — no message ID after the slash
-    const hash = window.location.hash;
-    const parts = hash.replace('#', '').split('/');
-    // An open email has at least 2 parts and the second part is a message/thread ID
-    return parts.length >= 2 && parts[1].length > 6;
+  // Auto-importance check (runs when email opens, if toggle enabled)
+  async function runImportanceCheck(emailData) {
+    if (!featureToggles.important) return;
+    const text = emailData.bodyText || emailData.emailText;
+    if (!text) return;
+    const response = await sendMessage({
+      type: "CHECK_IMPORTANCE",
+      text,
+      sender: emailData.sender,
+      messageId: emailData.messageId
+    });
+    if (response?.isImportant) {
+      const root = ensureResultRoot(emailData.subjectElement, emailData.bodyElement);
+      if (root) renderImportance(root, response);
+    }
   }
 
+  // -------------------------------------------------------
+  // Inject / remove buttons based on current view
+  // -------------------------------------------------------
+  let isInjecting = false;
+  let observer = null;
+  let lastEmailUrl = "";
+
   function injectIfReady() {
-    // Prevent re-entrant calls that cause infinite mutation loops
     if (isInjecting) return;
     isInjecting = true;
 
@@ -211,115 +207,78 @@
       const allOff = !featureToggles.summarize && !featureToggles.categorize && !featureToggles.spamCheck;
       const emailOpen = isEmailOpen();
 
-      const emailData = getCurrentEmailContext();
-      const toolbar = getEmailToolbar();
-      const composeToolbar = getComposeToolbar();
-
-      // Always clean up stale buttons from anywhere in the doc first
+      // Always sweep stale buttons globally
       if (allOff || !emailOpen) {
         document.querySelectorAll("#inboxzero-ai-action-buttons").forEach(el => el.remove());
       }
 
-      if (toolbar) {
-        if (!allOff && emailOpen && emailData.isOpenEmailView) {
-          ensureActionButtons(toolbar, {
-            onSummarizeClick,
-            onCategorizeClick,
-            onSpamCheckClick
-          }, {
-            summarize: featureToggles.summarize,
-            categorize: featureToggles.categorize,
-            spamCheck: featureToggles.spamCheck
-          });
-        }
+      const emailData = getCurrentEmailContext();
+      const toolbar = getEmailToolbar();
+      const composeToolbar = getComposeToolbar();
+
+      if (toolbar && !allOff && emailOpen && emailData.isOpenEmailView) {
+        ensureActionButtons(toolbar, {
+          onSummarizeClick, onCategorizeClick, onSpamCheckClick
+        }, {
+          summarize: featureToggles.summarize,
+          categorize: featureToggles.categorize,
+          spamCheck: featureToggles.spamCheck
+        });
       }
 
-      if (composeToolbar) {
-        ensureTemplateButton(composeToolbar, onTemplatesClick);
+      if (composeToolbar) ensureTemplateButton(composeToolbar, onTemplatesClick);
+
+      // Run auto-importance when navigating to a new email
+      const currentUrl = window.location.hash;
+      if (emailOpen && emailData.isOpenEmailView && currentUrl !== lastEmailUrl) {
+        lastEmailUrl = currentUrl;
+        runImportanceCheck(emailData);
       }
+
     } finally {
       isInjecting = false;
     }
   }
 
+  // -------------------------------------------------------
+  // Listen for result messages pushed from service worker
+  // -------------------------------------------------------
   chrome.runtime.onMessage.addListener((message) => {
-    if (!message || typeof message !== "object") {
-      return;
-    }
-
+    if (!message || typeof message !== "object") return;
     const emailData = getCurrentEmailContext();
     const root = ensureResultRoot(emailData.subjectElement, emailData.bodyElement);
-
-    if (message.type === "SUMMARY_RESULT") {
-      if (!featureToggles.summarize) {
-        return;
-      }
+    if (message.type === "SUMMARY_RESULT" && featureToggles.summarize)
       renderSummary(root, message.bullets || []);
-    }
-
-    if (message.type === "CATEGORY_RESULT") {
-      if (!featureToggles.categorize) {
-        return;
-      }
-      renderCategory(root, message.category || "Unknown");
-    }
-
-    if (message.type === "SPAM_RESULT") {
-      if (!featureToggles.spamCheck) {
-        return;
-      }
-      renderSpamWarning(root, {
-        score: message.score ?? 0,
-        flags: message.flags || []
-      });
-    }
+    if (message.type === "CATEGORY_RESULT" && featureToggles.categorize)
+      renderCategory(root, message.category || "Unknown", false);
+    if (message.type === "SPAM_RESULT" && featureToggles.spamCheck)
+      renderSpamWarning(root, { score: message.score ?? 0, flags: message.flags || [] }, null);
   });
 
-  featureToggles = await loadFeatureToggles();
-  injectIfReady();
-
+  // -------------------------------------------------------
+  // Storage change listener (toggle updates from popup)
+  // -------------------------------------------------------
   chrome.storage.onChanged.addListener((changes, areaName) => {
-    if (areaName !== "sync") {
-      return;
-    }
-
-    if (Object.prototype.hasOwnProperty.call(changes, "autoSummarize")) {
-      featureToggles.summarize =
-        typeof changes.autoSummarize.newValue === "boolean"
-          ? changes.autoSummarize.newValue
-          : DEFAULT_TOGGLES.summarize;
-    }
-
-    if (Object.prototype.hasOwnProperty.call(changes, "autoCategorize")) {
-      featureToggles.categorize =
-        typeof changes.autoCategorize.newValue === "boolean"
-          ? changes.autoCategorize.newValue
-          : DEFAULT_TOGGLES.categorize;
-    }
-
-    if (Object.prototype.hasOwnProperty.call(changes, "spamAlerts")) {
-      featureToggles.spamCheck =
-        typeof changes.spamAlerts.newValue === "boolean"
-          ? changes.spamAlerts.newValue
-          : DEFAULT_TOGGLES.spamCheck;
-    }
-
+    if (areaName !== "sync") return;
+    if ("autoSummarize"  in changes) featureToggles.summarize  = changes.autoSummarize.newValue  ?? DEFAULT_TOGGLES.summarize;
+    if ("autoCategorize" in changes) featureToggles.categorize = changes.autoCategorize.newValue ?? DEFAULT_TOGGLES.categorize;
+    if ("spamAlerts"     in changes) featureToggles.spamCheck  = changes.spamAlerts.newValue     ?? DEFAULT_TOGGLES.spamCheck;
+    if ("autoImportant"  in changes) featureToggles.important  = changes.autoImportant.newValue  ?? DEFAULT_TOGGLES.important;
     injectIfReady();
   });
 
+  // -------------------------------------------------------
+  // Init
+  // -------------------------------------------------------
+  featureToggles = await loadFeatureToggles();
+  injectIfReady();
+
   observer = new MutationObserver(() => {
-    // Debounce — wait for Gmail's DOM to settle before checking
     clearTimeout(window.__inboxzeroTimer);
     window.__inboxzeroTimer = setTimeout(injectIfReady, 300);
   });
+  observer.observe(document.body, { childList: true, subtree: true });
 
-  // Initial observe — injectIfReady will disconnect/reconnect this around DOM changes
-  observer.observe(document.body, {
-    childList: true,
-    subtree: true
-  });
-
-  // Clean up all injected elements when extension is disabled or page unloads
   window.addEventListener("unload", cleanupAllInjectedElements);
   chrome.runtime.connect().onDisconnect.addListener(cleanupAllInjectedElements);
 })();

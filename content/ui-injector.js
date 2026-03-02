@@ -1,10 +1,67 @@
+// ============================================================
+// InboxZero AI — UI Injector
+// Injects and renders all UI elements into Gmail
+// ============================================================
+
 const ROOT_ID = "inboxzero-ai-root";
 const SUMMARY_ID = "inboxzero-ai-summary";
 const CATEGORY_ID = "inboxzero-ai-category";
 const SPAM_ID = "inboxzero-ai-spam";
+const IMPORTANCE_ID = "inboxzero-ai-importance";
 const TEMPLATE_PICKER_ID = "inboxzero-ai-template-picker";
 const ACTION_CONTAINER_ID = "inboxzero-ai-action-buttons";
 
+// -------------------------------------------------------
+// CARD FACTORY — consistent card shell with dismiss
+// -------------------------------------------------------
+function createCard(id, accentColor, onDismiss) {
+  const card = document.createElement("div");
+  card.id = id;
+  card.style.cssText = `
+    font-family: Google Sans, Roboto, Arial, sans-serif;
+    font-size: 13px;
+    line-height: 1.5;
+    border-radius: 10px;
+    padding: 10px 36px 10px 14px;
+    position: relative;
+    border-left: 3px solid ${accentColor};
+    background: #1e1e2a;
+    border-top: 1px solid #2d2d3a;
+    border-right: 1px solid #2d2d3a;
+    border-bottom: 1px solid #2d2d3a;
+    color: #e8eaed;
+    box-sizing: border-box;
+    width: 100%;
+  `;
+
+  // Dismiss button
+  const x = document.createElement("button");
+  x.type = "button";
+  x.textContent = "✕";
+  x.style.cssText = `
+    position: absolute; top: 8px; right: 10px;
+    background: none; border: none; cursor: pointer;
+    font-size: 11px; color: #9aa0a6; padding: 2px 4px;
+    border-radius: 4px; line-height: 1;
+  `;
+  x.onmouseenter = () => x.style.background = "rgba(255,255,255,0.08)";
+  x.onmouseleave = () => x.style.background = "none";
+  x.addEventListener("click", e => { e.stopPropagation(); onDismiss(card); });
+  card.appendChild(x);
+
+  return card;
+}
+
+function cardLabel(text, color = "#9aa0a6") {
+  const el = document.createElement("div");
+  el.style.cssText = `font-size: 10px; font-weight: 600; text-transform: uppercase; letter-spacing: 0.7px; color: ${color}; margin-bottom: 4px;`;
+  el.textContent = text;
+  return el;
+}
+
+// -------------------------------------------------------
+// BUTTON FACTORY
+// -------------------------------------------------------
 function createButton(label, action) {
   const button = document.createElement("button");
   button.type = "button";
@@ -12,45 +69,24 @@ function createButton(label, action) {
   button.dataset.inboxzeroAction = action;
   button.dataset.inboxzeroRole = "action-button";
   button.textContent = label;
-  button.style.marginLeft = "8px";
-  button.style.padding = "6px 10px";
-  button.style.border = "1px solid #d0d0d0";
-  button.style.borderRadius = "6px";
-  button.style.background = "#fff";
-  button.style.cursor = "pointer";
-  button.style.fontSize = "12px";
-  button.style.position = "relative";
-  button.style.zIndex = "9999";
-  button.style.pointerEvents = "all";
+  button.style.cssText = `
+    margin-left: 8px; padding: 5px 11px;
+    border: 1px solid #d0d0d0; border-radius: 16px;
+    background: #fff; cursor: pointer; font-size: 12px;
+    font-family: Google Sans, Roboto, Arial, sans-serif;
+    font-weight: 500; color: #3c4043;
+    position: relative; z-index: 9999; pointer-events: all;
+    transition: background 0.15s, border-color 0.15s;
+    white-space: nowrap;
+  `;
+  button.onmouseenter = () => { button.style.background = "#f6f8fc"; button.style.borderColor = "#aaa"; };
+  button.onmouseleave = () => { button.style.background = "#fff"; button.style.borderColor = "#d0d0d0"; };
   return button;
 }
 
-function createDismissButton(onDismiss) {
-  const btn = document.createElement("button");
-  btn.type = "button";
-  btn.textContent = "✕";
-  btn.style.cssText = `
-    position: absolute;
-    top: 6px;
-    right: 8px;
-    background: none;
-    border: none;
-    cursor: pointer;
-    font-size: 12px;
-    color: #888;
-    line-height: 1;
-    padding: 0;
-    z-index: 1;
-  `;
-  btn.addEventListener("mouseenter", () => btn.style.color = "#333");
-  btn.addEventListener("mouseleave", () => btn.style.color = "#888");
-  btn.addEventListener("click", (e) => {
-    e.stopPropagation();
-    onDismiss();
-  });
-  return btn;
-}
-
+// -------------------------------------------------------
+// ACTION BUTTONS (Summarize / Categorize / Spam Check)
+// -------------------------------------------------------
 function ensureActionButtons(toolbar, handlers, enabledFeatures = {}) {
   if (!toolbar) return;
 
@@ -58,175 +94,252 @@ function ensureActionButtons(toolbar, handlers, enabledFeatures = {}) {
   if (!container) {
     container = document.createElement("div");
     container.id = ACTION_CONTAINER_ID;
-    container.style.display = "inline-flex";
-    container.style.alignItems = "center";
+    container.style.cssText = "display:inline-flex;align-items:center;";
     toolbar.appendChild(container);
   }
 
   const actionConfig = [
-    { action: "summarize", label: "Summarize", onClick: handlers.onSummarizeClick },
-    { action: "categorize", label: "Categorize", onClick: handlers.onCategorizeClick },
-    { action: "spamCheck", label: "Spam Check", onClick: handlers.onSpamCheckClick }
+    { action: "summarize",  label: "✦ Summarize",   onClick: handlers.onSummarizeClick },
+    { action: "categorize", label: "🏷 Categorize",  onClick: handlers.onCategorizeClick },
+    { action: "spamCheck",  label: "🛡 Spam Check",  onClick: handlers.onSpamCheckClick }
   ];
 
   actionConfig.forEach(({ action, label, onClick }) => {
     const enabled = enabledFeatures[action] !== false;
     const existing = container.querySelector(`[data-inboxzero-action="${action}"]`);
-
-    if (!enabled && existing) {
-      existing.remove();
-      return;
-    }
-
+    if (!enabled && existing) { existing.remove(); return; }
     if (enabled && !existing) {
-      const button = createButton(label, action);
-      button.addEventListener("click", onClick);
-      container.appendChild(button);
+      const btn = createButton(label, action);
+      btn.addEventListener("click", onClick);
+      container.appendChild(btn);
     }
   });
 
-  if (!container.querySelector('[data-inboxzero-role="action-button"]')) {
-    container.remove();
-  }
+  if (!container.querySelector('[data-inboxzero-role="action-button"]')) container.remove();
 }
 
-// Remove buttons when not in email view
 function removeActionButtons(toolbar) {
   if (!toolbar) return;
   const container = toolbar.querySelector(`#${ACTION_CONTAINER_ID}`);
   if (container) container.remove();
 }
 
+// -------------------------------------------------------
+// TEMPLATES BUTTON (Compose window)
+// -------------------------------------------------------
 function ensureTemplateButton(composeToolbar, onTemplatesClick) {
   if (!composeToolbar) return;
   if (composeToolbar.querySelector('[data-inboxzero-action="templates"]')) return;
-
-  const templatesBtn = createButton("Templates", "templates");
-  templatesBtn.addEventListener("click", onTemplatesClick);
-  composeToolbar.appendChild(templatesBtn);
+  const btn = createButton("📝 Templates", "templates");
+  btn.addEventListener("click", onTemplatesClick);
+  composeToolbar.appendChild(btn);
 }
 
+// -------------------------------------------------------
+// RESULT ROOT — injected above email body
+// -------------------------------------------------------
 function ensureResultRoot(subjectElement, bodyElement) {
   if (!subjectElement && !bodyElement) return null;
-
   const anchor = subjectElement || bodyElement;
-  const emailContainer = anchor.closest(".ii.gt") || anchor.parentElement;
+  const emailContainer = anchor.closest(".ii.gt") || anchor.closest(".adn") || anchor.parentElement;
   if (!emailContainer) return null;
 
   let root = emailContainer.querySelector(`#${ROOT_ID}`);
   if (!root) {
     root = document.createElement("div");
     root.id = ROOT_ID;
-    root.style.margin = "8px 0";
-    root.style.display = "grid";
-    root.style.gap = "8px";
+    root.style.cssText = `
+      display: flex; flex-direction: column; gap: 6px;
+      margin: 8px 0 12px 0; width: 100%; box-sizing: border-box;
+    `;
     emailContainer.insertBefore(root, emailContainer.firstChild);
   }
-
   return root;
 }
 
+// -------------------------------------------------------
+// SUMMARY CARD
+// -------------------------------------------------------
 function renderSummary(root, bullets) {
   if (!root) return;
-
-  let summary = root.querySelector(`#${SUMMARY_ID}`);
-  if (!summary) {
-    summary = document.createElement("div");
-    summary.id = SUMMARY_ID;
-    summary.style.cssText = `
-      background: #e8f0fe;
-      border: 1px solid #c6dafc;
-      padding: 8px 32px 8px 10px;
-      border-radius: 8px;
-      position: relative;
-    `;
-    summary.appendChild(createDismissButton(() => summary.remove()));
-    root.appendChild(summary);
+  let card = root.querySelector(`#${SUMMARY_ID}`);
+  if (!card) {
+    card = createCard(SUMMARY_ID, "#8ab4f8", el => el.remove());
+    root.appendChild(card);
   }
+  // Clear old content (keep dismiss button)
+  [...card.children].forEach(c => { if (c.tagName !== "BUTTON") c.remove(); });
 
-  const safeBullets = Array.isArray(bullets) ? bullets : [];
-  // Update content but keep the dismiss button
-  const existing = summary.querySelector("div.inboxzero-content");
-  const content = existing || document.createElement("div");
-  content.className = "inboxzero-content";
-  content.innerHTML = `<strong>AI Summary</strong><ul style="margin:6px 0 0 16px;">${safeBullets
-    .map((b) => `<li>${String(b)}</li>`)
-    .join("")}</ul>`;
-  if (!existing) summary.insertBefore(content, summary.firstChild);
+  card.insertBefore(cardLabel("✦ AI Summary", "#8ab4f8"), card.firstChild);
+
+  const safeBullets = Array.isArray(bullets) ? bullets : [String(bullets)];
+  const ul = document.createElement("ul");
+  ul.style.cssText = "margin: 4px 0 0 16px; padding: 0;";
+  safeBullets.forEach(b => {
+    const li = document.createElement("li");
+    li.style.cssText = "color: #bdc1c6; margin-bottom: 2px;";
+    li.textContent = String(b);
+    ul.appendChild(li);
+  });
+  card.insertBefore(ul, card.querySelector("button"));
 }
 
-function renderCategory(root, category) {
+// -------------------------------------------------------
+// CATEGORY CARD
+// -------------------------------------------------------
+const CATEGORY_COLORS = {
+  Work:     { accent: "#81c995", bg: "#1e2e22" },
+  Personal: { accent: "#8ab4f8", bg: "#1e2430" },
+  Promo:    { accent: "#ffa756", bg: "#2e2318" },
+  Urgent:   { accent: "#f28b82", bg: "#2e1e1e" },
+  Spam:     { accent: "#f28b82", bg: "#2e1e1e" },
+};
+
+function renderCategory(root, category, labelApplied) {
   if (!root) return;
+  let card = root.querySelector(`#${CATEGORY_ID}`);
 
-  let badge = root.querySelector(`#${CATEGORY_ID}`);
-  if (!badge) {
-    badge = document.createElement("div");
-    badge.id = CATEGORY_ID;
-    badge.style.cssText = `
-      display: inline-flex;
-      align-items: center;
-      gap: 8px;
-      padding: 4px 8px;
-      border-radius: 999px;
-      background: #f1f3f4;
-      font-size: 12px;
-      position: relative;
-    `;
-    root.appendChild(badge);
+  const colors = CATEGORY_COLORS[category] || { accent: "#9aa0a6", bg: "#1e1e2a" };
+
+  if (!card) {
+    card = createCard(CATEGORY_ID, colors.accent, el => el.remove());
+    root.appendChild(card);
+  }
+  card.style.borderLeftColor = colors.accent;
+  card.style.background = colors.bg;
+
+  [...card.children].forEach(c => { if (c.tagName !== "BUTTON") c.remove(); });
+
+  card.insertBefore(cardLabel("🏷 Category", colors.accent), card.firstChild);
+
+  const row = document.createElement("div");
+  row.style.cssText = "display:flex;align-items:center;gap:8px;flex-wrap:wrap;";
+
+  const badge = document.createElement("span");
+  badge.style.cssText = `
+    display:inline-block; padding: 2px 10px; border-radius: 999px;
+    background: ${colors.accent}22; border: 1px solid ${colors.accent}66;
+    color: ${colors.accent}; font-size: 12px; font-weight: 600;
+  `;
+  badge.textContent = category;
+  row.appendChild(badge);
+
+  if (labelApplied) {
+    const tag = document.createElement("span");
+    tag.style.cssText = "font-size:11px;color:#9aa0a6;";
+    tag.textContent = "✓ Gmail label applied";
+    row.appendChild(tag);
   }
 
-  const label = badge.querySelector(".inboxzero-cat-label") || document.createElement("span");
-  label.className = "inboxzero-cat-label";
-  label.textContent = `Category: ${category || "Unknown"}`;
-  if (!badge.contains(label)) badge.appendChild(label);
-
-  // Add dismiss if not already there
-  if (!badge.querySelector(".inboxzero-dismiss")) {
-    const x = createDismissButton(() => badge.remove());
-    x.style.position = "static";
-    x.className = "inboxzero-dismiss";
-    badge.appendChild(x);
-  }
+  card.insertBefore(row, card.querySelector("button"));
 }
 
-function renderSpamWarning(root, spamResult) {
+// -------------------------------------------------------
+// SPAM CARD — with score bar and delete button
+// -------------------------------------------------------
+function renderSpamWarning(root, spamResult, onDelete) {
   if (!root) return;
-
-  let banner = root.querySelector(`#${SPAM_ID}`);
-  if (!banner) {
-    banner = document.createElement("div");
-    banner.id = SPAM_ID;
-    banner.style.cssText = `
-      padding: 8px 32px 8px 10px;
-      border-radius: 8px;
-      font-size: 12px;
-      position: relative;
-    `;
-    banner.appendChild(createDismissButton(() => banner.remove()));
-    root.appendChild(banner);
-  }
-
+  let card = root.querySelector(`#${SPAM_ID}`);
   const score = Number(spamResult?.score ?? 0);
-  const flags = Array.isArray(spamResult?.flags) ? spamResult.flags : [];
+  const isDanger = score >= 60 || spamResult?.flagged;
+  const isSuspicious = score >= 30 && score < 60;
+  const accent = isDanger ? "#f28b82" : isSuspicious ? "#ffa756" : "#81c995";
+  const bg = isDanger ? "#2e1e1e" : isSuspicious ? "#2e2318" : "#1e2e22";
 
-  const content = banner.querySelector(".inboxzero-content") || document.createElement("span");
-  content.className = "inboxzero-content";
+  if (!card) {
+    card = createCard(SPAM_ID, accent, el => el.remove());
+    root.appendChild(card);
+  }
+  card.style.borderLeftColor = accent;
+  card.style.background = bg;
+  [...card.children].forEach(c => { if (c.tagName !== "BUTTON") c.remove(); });
 
-  if (score >= 60 || flags.length > 0) {
-    banner.style.background = "#fce8e6";
-    banner.style.border = "1px solid #f5c6cb";
-    banner.style.color = "#b3261e";
-    content.textContent = `⚠️ Spam warning (score ${score})${flags.length ? `: ${flags.join(", ")}` : ""}`;
-  } else {
-    banner.style.background = "#e6f4ea";
-    banner.style.border = "1px solid #c7e6ce";
-    banner.style.color = "#137333";
-    content.textContent = `✓ Spam check passed (score ${score})`;
+  const levelText = isDanger ? "⚠️ Spam Detected" : isSuspicious ? "⚡ Suspicious" : "✓ Spam Check";
+  card.insertBefore(cardLabel(levelText, accent), card.firstChild);
+
+  // Score bar
+  const barWrap = document.createElement("div");
+  barWrap.style.cssText = "display:flex;align-items:center;gap:8px;margin-bottom:4px;";
+  const barTrack = document.createElement("div");
+  barTrack.style.cssText = `flex:1;height:4px;border-radius:2px;background:#2d2d3a;`;
+  const barFill = document.createElement("div");
+  barFill.style.cssText = `height:4px;border-radius:2px;background:${accent};width:${score}%;transition:width 0.4s;`;
+  barTrack.appendChild(barFill);
+  const scoreLabel = document.createElement("span");
+  scoreLabel.style.cssText = `font-size:12px;font-weight:700;color:${accent};min-width:32px;`;
+  scoreLabel.textContent = `${score}/100`;
+  barWrap.appendChild(barTrack);
+  barWrap.appendChild(scoreLabel);
+  card.insertBefore(barWrap, card.querySelector("button"));
+
+  // Reasoning
+  if (spamResult?.reasoning) {
+    const reason = document.createElement("div");
+    reason.style.cssText = "font-size:11px;color:#9aa0a6;margin-bottom:4px;";
+    reason.textContent = spamResult.reasoning;
+    card.insertBefore(reason, card.querySelector("button"));
   }
 
-  if (!banner.contains(content)) banner.insertBefore(content, banner.firstChild);
+  // Flags
+  const flags = Array.isArray(spamResult?.flags) ? spamResult.flags : [];
+  if (flags.length > 0) {
+    const flagList = document.createElement("div");
+    flagList.style.cssText = "display:flex;flex-wrap:wrap;gap:4px;";
+    flags.slice(0, 3).forEach(f => {
+      const pill = document.createElement("span");
+      pill.style.cssText = `font-size:10px;padding:1px 6px;border-radius:4px;background:${accent}22;color:${accent};`;
+      pill.textContent = f;
+      flagList.appendChild(pill);
+    });
+    card.insertBefore(flagList, card.querySelector("button"));
+  }
+
+  // Delete button — only for danger emails
+  if (isDanger && onDelete) {
+    const delBtn = document.createElement("button");
+    delBtn.type = "button";
+    delBtn.textContent = "🗑 Move to Trash";
+    delBtn.style.cssText = `
+      margin-top: 8px; padding: 5px 12px; background: #f28b8222;
+      border: 1px solid #f28b82; border-radius: 6px; color: #f28b82;
+      font-size: 12px; cursor: pointer; font-family: inherit;
+    `;
+    delBtn.onmouseenter = () => { delBtn.style.background = "#f28b8244"; };
+    delBtn.onmouseleave = () => { delBtn.style.background = "#f28b8222"; };
+    delBtn.addEventListener("click", async e => {
+      e.stopPropagation();
+      delBtn.textContent = "Deleting...";
+      delBtn.disabled = true;
+      await onDelete();
+      card.remove();
+    });
+    card.insertBefore(delBtn, card.querySelector("button"));
+  }
 }
 
+// -------------------------------------------------------
+// IMPORTANCE CARD
+// -------------------------------------------------------
+function renderImportance(root, result) {
+  if (!root || !result?.isImportant) return;
+  let card = root.querySelector(`#${IMPORTANCE_ID}`);
+  if (!card) {
+    card = createCard(IMPORTANCE_ID, "#ffa756", el => el.remove());
+    root.appendChild(card);
+  }
+  [...card.children].forEach(c => { if (c.tagName !== "BUTTON") c.remove(); });
+  card.insertBefore(cardLabel("❗ Important Email", "#ffa756"), card.firstChild);
+  if (result.reason) {
+    const r = document.createElement("div");
+    r.style.cssText = "font-size:12px;color:#bdc1c6;";
+    r.textContent = result.reason;
+    card.insertBefore(r, card.querySelector("button"));
+  }
+}
+
+// -------------------------------------------------------
+// TEMPLATE PICKER (Compose)
+// -------------------------------------------------------
 function removeTemplatePicker(composeToolbar) {
   const scope = composeToolbar || document;
   const picker = scope.querySelector(`#${TEMPLATE_PICKER_ID}`);
@@ -235,38 +348,39 @@ function removeTemplatePicker(composeToolbar) {
 
 function renderTemplatePicker(composeToolbar, templates, onSelectTemplate) {
   if (!composeToolbar) return;
-
   removeTemplatePicker(composeToolbar);
 
   const picker = document.createElement("select");
   picker.id = TEMPLATE_PICKER_ID;
-  picker.style.marginLeft = "8px";
-  picker.style.padding = "6px 8px";
-
+  picker.style.cssText = `
+    margin-left: 8px; padding: 4px 8px; border-radius: 16px;
+    border: 1px solid #d0d0d0; background: #fff; font-size: 12px;
+    cursor: pointer; color: #3c4043; font-family: Google Sans, Roboto, Arial, sans-serif;
+  `;
   const placeholder = document.createElement("option");
   placeholder.value = "";
   placeholder.textContent = "Insert template...";
   picker.appendChild(placeholder);
 
-  (templates || []).forEach((template, index) => {
-    const option = document.createElement("option");
-    option.value = String(index);
-    option.textContent = template?.name || `Template ${index + 1}`;
-    picker.appendChild(option);
+  (templates || []).forEach((tpl, i) => {
+    const opt = document.createElement("option");
+    opt.value = String(i);
+    opt.textContent = tpl?.name || `Template ${i + 1}`;
+    picker.appendChild(opt);
   });
 
   picker.addEventListener("change", () => {
     const idx = Number(picker.value);
-    if (Number.isNaN(idx)) return;
-    const selected = templates?.[idx];
-    if (selected) onSelectTemplate(selected);
+    if (!isNaN(idx) && templates[idx]) onSelectTemplate(templates[idx]);
     picker.value = "";
   });
 
   composeToolbar.appendChild(picker);
 }
 
-// Removes ALL injected elements from the page (called on unload/disable)
+// -------------------------------------------------------
+// CLEANUP
+// -------------------------------------------------------
 function cleanupAllInjectedElements() {
   document.querySelectorAll(
     `#${ACTION_CONTAINER_ID}, #${ROOT_ID}, #${TEMPLATE_PICKER_ID}`
@@ -281,6 +395,7 @@ export {
   renderSummary,
   renderCategory,
   renderSpamWarning,
+  renderImportance,
   renderTemplatePicker,
   removeTemplatePicker,
   cleanupAllInjectedElements
