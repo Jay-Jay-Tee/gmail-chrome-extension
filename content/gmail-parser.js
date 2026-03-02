@@ -8,14 +8,12 @@ const SENDER_SELECTORS = [
 ];
 const TOOLBAR_SELECTOR = ".G-atb";
 const COMPOSE_BODY_SELECTOR = ".Am.Al.editable";
-const COMPOSE_TOOLBAR_SELECTOR = ".aDh, .aoD.hl";
+const COMPOSE_TOOLBAR_SELECTOR = ".aoD.hl, .btC, .gU.Up";
 
 function firstMatch(selectors, root = document) {
   for (const selector of selectors) {
     const element = root.querySelector(selector);
-    if (element) {
-      return element;
-    }
+    if (element) return element;
   }
   return null;
 }
@@ -59,12 +57,24 @@ function getComposeBody() {
 
 function getComposeToolbar() {
   const composeBody = getComposeBody();
-  if (!composeBody) {
-    return null;
+  if (!composeBody) return null;
+
+  // Walk up to the compose window root
+  const composeWindow = composeBody.closest(".AD, .nH, [role='dialog']");
+  if (!composeWindow) return null;
+
+  // Anchor to the Send button — it always lives in the bottom toolbar
+  const sendButton = composeWindow.querySelector(
+    "[data-tooltip='Send'], [aria-label='Send'], .T-I.J-J5-Ji.aoO"
+  );
+  if (sendButton) {
+    const toolbar = sendButton.closest(".aoD, .btC, .gU");
+    if (toolbar) return toolbar;
   }
 
-  const composeContainer = composeBody.closest(".nH, .AD") || document;
-  return composeContainer.querySelector(COMPOSE_TOOLBAR_SELECTOR);
+  // Fallback: use the LAST match — bottom toolbar, not the recipient header at top
+  const all = composeWindow.querySelectorAll(COMPOSE_TOOLBAR_SELECTOR);
+  return all.length ? all[all.length - 1] : null;
 }
 
 export {

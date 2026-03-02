@@ -79,36 +79,39 @@ function initApiKeyUI() {
 
 /* =====================================================
    TOGGLES
+   FIX: map element IDs to the storage keys content.js actually reads
 ===================================================== */
 
 function initToggles() {
-    const toggleIds = [
-        "toggleSummarize",
-        "toggleCategorize",
-        "toggleSpam"
+    const toggleMap = [
+        { elId: "toggleSummarize", storageKey: "autoSummarize" },
+        { elId: "toggleCategorize", storageKey: "autoCategorize" },
+        { elId: "toggleSpam",       storageKey: "spamAlerts"     }
     ];
 
-    getStorage(toggleIds).then((data) => {
-        toggleIds.forEach((id) => {
-            const el = document.getElementById(id);
-            if (el && data[id] !== undefined) {
-                el.checked = data[id];
+    const storageKeys = toggleMap.map(t => t.storageKey);
+
+    getStorage(storageKeys).then((data) => {
+        toggleMap.forEach(({ elId, storageKey }) => {
+            const el = document.getElementById(elId);
+            if (el && data[storageKey] !== undefined) {
+                el.checked = data[storageKey];
             }
         });
     });
 
-    toggleIds.forEach((id) => {
-        const el = document.getElementById(id);
+    toggleMap.forEach(({ elId, storageKey }) => {
+        const el = document.getElementById(elId);
         if (!el) return;
-
         el.addEventListener("change", async () => {
-            await setStorage({ [id]: el.checked });
+            await setStorage({ [storageKey]: el.checked });
         });
     });
 }
 
 /* =====================================================
    TEMPLATE SYSTEM
+   FIX: templates are {id, name, body} objects — render .name, save correctly
 ===================================================== */
 
 function initTemplates() {
@@ -131,10 +134,14 @@ function initTemplates() {
             return;
         }
 
-        templates.forEach((text, index) => {
+        templates.forEach((tpl, index) => {
+            // FIX: tpl is an object {id, name, body} — was being stringified as [object Object]
+            const name = tpl.name || tpl.body || String(tpl);
+            const body = tpl.body || tpl.name || String(tpl);
+
             const box = document.createElement("div");
             box.className = "template-box";
-            box.textContent = text;
+            box.textContent = name;
             box.draggable = true;
 
             /* Delete */
@@ -152,7 +159,7 @@ function initTemplates() {
             box.addEventListener("click", () => {
                 chrome.runtime.sendMessage({
                     type: "INSERT_TEMPLATE",
-                    text
+                    body
                 });
             });
 
@@ -206,12 +213,12 @@ function initTemplates() {
         addBtn.style.display = "block";
     });
 
-    /* Save */
+    /* Save — store as object with name + body so it's consistent */
     saveBtn.addEventListener("click", async () => {
         const val = input.value.trim();
         if (!val) return;
 
-        templates.unshift(val);
+        templates.unshift({ id: Date.now().toString(), name: val, body: val });
         await persist();
 
         input.value = "";
