@@ -242,6 +242,8 @@ function initDashboard() {
     const statusEl = document.getElementById("dashboardStatus");
     const aiBodyEl = document.getElementById("aiSummaryBody");
     const aiStatusEl = document.getElementById("aiSummaryStatus");
+    const connectedEmailEl = document.getElementById("connectedEmail");
+    const switchGmailBtn = document.getElementById("switchGmailBtn");
 
     if (!emailsProcessedEl || !autoHandledEl || !weekReceivedEl || !weekSentEl || !spamEl || !trashEl) {
         return;
@@ -259,6 +261,7 @@ function initDashboard() {
     chrome.runtime.sendMessage({ type: "GET_DASHBOARD_METRICS" }, (res) => {
         if (!res || res.success === false) {
             setStatus(res && res.error ? `Dashboard error: ${res.error}` : "Unable to load dashboard.");
+            if (connectedEmailEl) connectedEmailEl.textContent = "--";
             return;
         }
 
@@ -266,11 +269,14 @@ function initDashboard() {
         const gmail = res.gmail || {};
         const weekly = gmail.weekly || {};
 
+        if (connectedEmailEl) connectedEmailEl.textContent = gmail.emailAddress || "Connected";
+
         const emailsProcessed = local.emailsAnalyzed || 0;
         const autoHandled = (local.spamDetected || 0) + (local.emailsTrashed || 0) + (local.importantLabeled || 0);
 
         emailsProcessedEl.textContent = emailsProcessed.toLocaleString();
-        autoHandledEl.textContent = `${formatPercent(autoHandled, emailsProcessed || weekly.received || 0) || "--"}% auto‑handled`;
+        const pct = formatPercent(autoHandled, emailsProcessed || weekly.received || 0);
+        autoHandledEl.textContent = `${pct}% auto‑handled`;
 
         weekReceivedEl.textContent = `${(weekly.received || 0).toLocaleString()} received`;
         weekSentEl.textContent = `${(weekly.sent || 0).toLocaleString()} sent`;
@@ -284,6 +290,19 @@ function initDashboard() {
         const extraLine = `≈ ${minutesSaved} minutes saved · inbox cleared in ~${inboxClearSeconds}s`;
         setStatus(extraLine);
     });
+
+    if (switchGmailBtn) {
+        switchGmailBtn.addEventListener("click", () => {
+            setStatus("Switching account…");
+            chrome.runtime.sendMessage({ type: "CLEAR_GMAIL_TOKEN" }, (res) => {
+                if (!res || res.success === false) {
+                    setStatus(res && res.error ? res.error : "Could not clear token.");
+                    return;
+                }
+                setStatus("Switched account mode. Next action will prompt you to choose an account again.");
+            });
+        });
+    }
 
     // Quick actions
     const btnArchive = document.getElementById("actionArchiveNewsletters");

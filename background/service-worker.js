@@ -142,6 +142,7 @@ async function fetchDashboardMetrics() {
   ]);
 
   return {
+    emailAddress: profile.emailAddress || '',
     messagesTotal: profile.messagesTotal || 0,
     threadsTotal: profile.threadsTotal || 0,
     labels: labelSummaries,
@@ -152,6 +153,16 @@ async function fetchDashboardMetrics() {
       promotions: promoWeek,
     },
   };
+}
+
+async function clearCachedAuthToken() {
+  const token = await new Promise((resolve) => {
+    chrome.identity.getAuthToken({ interactive: false }, (t) => resolve(t || ''));
+  });
+  if (!token) return false;
+
+  await new Promise((resolve) => chrome.identity.removeCachedAuthToken({ token }, () => resolve()));
+  return true;
 }
 
 // -------------------------------------------------------
@@ -355,31 +366,89 @@ chrome.runtime.onMessage.addListener((message, sender, sendResponse) => {
       return true; // IMPORTANT: keeps message channel open for async response
 
     case 'CATEGORIZE':
-      categorizeEmail(message.text, message.sender)
-        .then(result => sendResponse({ success: true, ...result }))
-        .catch(err => sendResponse({ success: false, error: err.message }));
+      (async () => {
+        try {
+          const result = await categorizeEmail(message.text, message.sender);
+          let labelApplied = false;
+          if (message.messageId) {
+            try {
+              const labelResult = await applyCategoryLabel(result.category, message.messageId);
+              labelApplied = Boolean(labelResult.applied);
+            } catch (e) {
+              console.warn('[InboxZero] Failed to apply Gmail label:', e);
+            }
+          }
+          sendResponse({ success: true, category: result.category, labelApplied });
+        } catch (err) {
+          sendResponse({ success: false, error: err.message });
+        }
+      })();
       return true;
 
     case 'SPAM_CHECK':
-      checkSpam(message.sender, message.subject, message.text)
-        .then(result => sendResponse({ success: true, ...result }))
-        .catch(err => sendResponse({ success: false, error: err.message }));
+      (async () => {
+        try {
+          const heuristic = await checkSpam(message.sender, message.subject, message.text);
+          const ai = await spamAnalyzeEmail({
+            senderEmail: message.sender,
+            subject: message.subject,
+            bodyText: message.text,
+          });
+
+          const combinedScore = Math.round(
+            Math.max(heuristic.score || 0, ai.score || 0, ((heuristic.score || 0) + (ai.score || 0)) / 2)
+          );
+
+          const result = {
+            score: combinedScore,
+            level: ai.level || heuristic.level,
+            flags: Array.from(new Set([...(heuristic.flags || []), ...(ai.flags || [])])),
+            reasoning: ai.reasoning || 'Spam verdict from rules + AI.',
+          };
+
+          if (combinedScore >= 60) incrementStat('spamDetected');
+          sendResponse({ success: true, ...result });
+        } catch (err) {
+          sendResponse({ success: false, error: err.message });
+        }
+      })();
       return true;
 
     case 'FULL_ANALYZE':
       // Runs all 3 checks at once — used when email is first opened
-      Promise.all([
-        summarizeEmail(message.text),
-        categorizeEmail(message.text, message.sender),
-        checkSpam(message.sender, message.subject, message.text)
-      ])
-        .then(([summary, category, spam]) => {
+      (async () => {
+        try {
+          const [summary, category, heuristic] = await Promise.all([
+            summarizeEmail(message.text),
+            categorizeEmail(message.text, message.sender),
+            checkSpam(message.sender, message.subject, message.text)
+          ]);
+
+          const ai = await spamAnalyzeEmail({
+            senderEmail: message.sender,
+            subject: message.subject,
+            bodyText: message.text,
+          });
+
+          const combinedScore = Math.round(
+            Math.max(heuristic.score || 0, ai.score || 0, ((heuristic.score || 0) + (ai.score || 0)) / 2)
+          );
+
+          const spam = {
+            score: combinedScore,
+            level: ai.level || heuristic.level,
+            flags: Array.from(new Set([...(heuristic.flags || []), ...(ai.flags || [])])),
+            reasoning: ai.reasoning || 'Spam verdict from rules + AI.',
+          };
+
           sendResponse({ success: true, summary, category, spam });
-          // Track stats in storage
+
           incrementStat('emailsAnalyzed');
-          if (spam.flagged) incrementStat('spamDetected');
-        })
-        .catch(err => sendResponse({ success: false, error: err.message }));
+          if (combinedScore >= 60) incrementStat('spamDetected');
+        } catch (err) {
+          sendResponse({ success: false, error: err.message });
+        }
+      })();
       return true;
     
     case 'GET_TEMPLATES':
@@ -438,6 +507,12 @@ chrome.runtime.onMessage.addListener((message, sender, sendResponse) => {
             });
           });
         })
+        .catch(err => sendResponse({ success: false, error: err.message }));
+      return true;
+
+    case 'CLEAR_GMAIL_TOKEN':
+      clearCachedAuthToken()
+        .then((cleared) => sendResponse({ success: true, cleared }))
         .catch(err => sendResponse({ success: false, error: err.message }));
       return true;
 

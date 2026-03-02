@@ -34,20 +34,34 @@
           <summary>Show me the setup steps</summary>
           <ol class="steps">
             <li>Create a project in Google Cloud Console.</li>
-            <li>Enable <strong>Gmail API</strong>.</li>
-            <li>Configure the <strong>OAuth consent screen</strong> (External + add yourself as a Test user).</li>
-            <li>Create OAuth client ID of type <strong>Chrome Extension</strong>.</li>
-            <li>For <strong>Item ID</strong>, paste your extension ID from <code>chrome://extensions</code>.</li>
-            <li>Paste the OAuth <strong>Client ID</strong> into <code>manifest.json</code> under <code>oauth2.client_id</code>.</li>
-            <li>Reload the extension on <code>chrome://extensions</code>.</li>
+            <li>Enable <strong>Gmail API</strong> for that project.</li>
+            <li>
+              Set up the <strong>OAuth consent screen</strong>:
+              <ul>
+                <li>Choose <strong>External</strong> user type.</li>
+                <li>Set publishing status to <strong>Testing</strong> (for development).</li>
+                <li>Under <strong>Test users</strong>, add your own Gmail address.</li>
+              </ul>
+            </li>
+            <li>Create an OAuth client ID with application type <strong>Chrome Extension</strong>.</li>
+            <li>
+              For <strong>Item ID</strong>, paste your extension ID from <code>chrome://extensions</code>
+              (Developer mode must be ON to see it).
+            </li>
+            <li>Copy the OAuth <strong>Client ID</strong> and paste it into <code>manifest.json</code> under <code>oauth2.client_id</code>.</li>
+            <li>Go to <code>chrome://extensions</code> and click <strong>Reload</strong> for this extension.</li>
+            <li>Come back here and click <strong>Test Gmail connection</strong>.</li>
           </ol>
           <p class="hint">
-            If you see <em>“bad client id”</em>, the client is tied to a different extension ID.
+            Common errors:
+            <br><strong>403 access_denied</strong> → you forgot to add your email under <strong>Test users</strong>.
+            <br><strong>bad client id</strong> → the OAuth client was created for a different extension ID (Item ID mismatch).
           </p>
         </details>
 
         <div class="actions">
           <button id="btnTestOAuth" class="btn primary">Test Gmail connection</button>
+          <button id="btnSwitchOAuth" class="btn">Switch Gmail account</button>
           <button id="btnOpenExtensions" class="btn">Open chrome://extensions</button>
         </div>
         <div id="msgOAuth" class="msg"></div>
@@ -65,6 +79,27 @@
         <p class="subtle">
           This is required for AI summaries and classification. The key is stored in Chrome sync storage.
         </p>
+
+        <details class="details">
+          <summary>Show me the steps</summary>
+          <ol class="steps">
+            <li>
+              Open
+              <a href="https://aistudio.google.com/app/apikey" target="_blank" rel="noreferrer">
+                Google AI Studio – API Keys
+              </a>.
+            </li>
+            <li>Sign in with the Google account you want to use.</li>
+            <li>Click <strong>Create API key</strong> and copy it.</li>
+            <li>Paste it below and click <strong>Save</strong>.</li>
+            <li>Click <strong>Verify key works</strong> to complete setup.</li>
+          </ol>
+          <p class="hint">
+            Common errors:
+            <br><strong>NO_API_KEY</strong> → the key wasn’t saved yet (click Save).
+            <br><strong>API error 4xx/5xx</strong> → the key is invalid, revoked, or rate-limited. Create a new one.
+          </p>
+        </details>
 
         <div class="input-row">
           <input id="geminiKeyInput" class="text-input" placeholder="Paste Gemini API key here">
