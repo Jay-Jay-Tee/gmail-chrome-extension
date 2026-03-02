@@ -6,7 +6,7 @@ const SENDER_SELECTORS = [
   ".go span[email]",
   ".go .gD"
 ];
-const TOOLBAR_SELECTOR = ".ade";
+const TOOLBAR_SELECTOR = ".G-atb";
 const COMPOSE_BODY_SELECTOR = ".Am.Al.editable";
 const COMPOSE_TOOLBAR_SELECTOR = ".aDh, .aoD.hl";
 
