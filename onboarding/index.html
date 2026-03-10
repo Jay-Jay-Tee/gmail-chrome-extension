@@ -58,58 +58,46 @@
         <div id="msgGemini" class="msg"></div>
       </section>
 
-      <!-- STEP 2: OAuth — Coming Soon -->
-      <div class="coming-soon-wrapper">
-        <div class="divider-lock">
+      <!-- STEP 2: OAuth — Optional -->
+      <div class="optional-step-wrapper">
+        <div class="divider-optional">
           <div class="divider-line"></div>
-          <div class="divider-icon" title="Requires OAuth — coming soon">
-            <svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.2" stroke-linecap="round" stroke-linejoin="round">
-              <rect x="3" y="11" width="18" height="11" rx="2" ry="2"></rect>
-              <path d="M7 11V7a5 5 0 0 1 10 0v4"></path>
-            </svg>
-          </div>
+          <div class="divider-label">Optional</div>
           <div class="divider-line"></div>
         </div>
 
         <section id="stepOAuth" class="card step-card oauth-card">
           <div class="step-head">
             <div>
-              <div class="step-kicker">Step 2</div>
+              <div class="step-kicker">Step 2 — Optional</div>
               <h2>Connect Gmail (OAuth)</h2>
             </div>
-            <div class="status pending">Optional</div>
+            <div id="statusOAuth" class="status pending">Not connected</div>
           </div>
 
           <p class="subtle">
-            Enables dashboard stats, connected email display, and one-click inbox actions via your Google account.
+            Unlocks the <strong>Inbox Dashboard</strong>: connected email display, stats, and one-click inbox actions. You can skip this and connect later from the extension popup.
           </p>
 
           <details class="details">
-            <summary>Setup steps</summary>
+            <summary>How to set up OAuth</summary>
             <ol class="steps">
-              <li>Create a project in Google Cloud Console.</li>
+              <li>Create a project in <a href="https://console.cloud.google.com/" target="_blank" rel="noreferrer">Google Cloud Console</a>.</li>
               <li>Enable <strong>Gmail API</strong> for that project.</li>
               <li>Set up the <strong>OAuth consent screen</strong> (External, Testing mode, add your Gmail as test user).</li>
               <li>Create an OAuth client ID for <strong>Chrome Extension</strong>.</li>
               <li>Paste your extension ID from <code>chrome://extensions</code> as the Item ID.</li>
               <li>Copy the OAuth <strong>Client ID</strong> into <code>manifest.json</code> under <code>oauth2.client_id</code>.</li>
-              <li>Reload the extension and click <strong>Test Gmail connection</strong>.</li>
+              <li>Reload the extension, then click <strong>Connect Gmail</strong> below.</li>
             </ol>
           </details>
 
           <div class="actions">
-            <button id="btnTestOAuth" class="btn primary">Test Gmail connection</button>
-            <button id="btnOpenExtensions" class="btn">Open chrome://extensions</button>
+            <button id="btnConnectOAuth" class="btn primary">Connect Gmail</button>
+            <button id="btnDisconnectOAuth" class="btn hidden">Disconnect</button>
+            <button id="btnSkipOAuth" class="btn">Skip for now</button>
           </div>
           <div id="msgOAuth" class="msg"></div>
-
-          <!-- Coming Soon overlay -->
-          <div class="coming-soon-overlay">
-            <div class="coming-soon-badge">
-              <span class="cs-icon">🔒</span>
-              <span class="cs-text">Testing — Coming Soon</span>
-            </div>
-          </div>
         </section>
       </div>
 

@@ -136,8 +136,8 @@
       sender: emailData.sender,
       messageId: emailData.messageId
     });
-    // labelApplied is always false until OAuth ships
-    if (root) renderCategory(root, response?.category || "Unknown", false);
+    // labelApplied reflects whether the service worker applied a Gmail label
+    if (root) renderCategory(root, response?.category || "Unknown", response?.labelApplied || false);
   }
 
   async function onSpamCheckClick() {
@@ -154,8 +154,21 @@
       text
     });
     if (!root) return;
-    // TRASH_MESSAGE requires OAuth — coming soon. Always pass null until then.
-    renderSpamWarning(root, response || { score: 0, flags: [] }, null);
+
+    // Only show Move to Trash if OAuth is connected and we have a messageId
+    const oauthStatus = await new Promise(resolve =>
+      chrome.storage.local.get(['oauthConnected'], r => resolve(r || {}))
+    );
+    const onDelete = (oauthStatus.oauthConnected && emailData.messageId)
+      ? async () => {
+          const res = await sendMessage({ type: 'TRASH_MESSAGE', messageId: emailData.messageId });
+          if (res?.success) {
+            root.querySelectorAll(`#inboxzero-ai-spam`).forEach(el => el.remove());
+          }
+        }
+      : null;
+
+    renderSpamWarning(root, response || { score: 0, flags: [] }, onDelete);
   }
 
   async function onTemplatesClick() {
@@ -250,8 +263,18 @@
       renderSummary(root, message.bullets || []);
     if (message.type === "CATEGORY_RESULT" && featureToggles.categorize)
       renderCategory(root, message.category || "Unknown", false);
-    if (message.type === "SPAM_RESULT" && featureToggles.spamCheck)
-      renderSpamWarning(root, { score: message.score ?? 0, flags: message.flags || [] }, null);
+    if (message.type === "SPAM_RESULT" && featureToggles.spamCheck) {
+      chrome.storage.local.get(['oauthConnected'], (r) => {
+        const oauthConnected = r?.oauthConnected || false;
+        const onDelete = (oauthConnected && emailData.messageId)
+          ? async () => {
+              const res = await sendMessage({ type: 'TRASH_MESSAGE', messageId: emailData.messageId });
+              if (res?.success) root?.querySelectorAll(`#inboxzero-ai-spam`).forEach(el => el.remove());
+            }
+          : null;
+        renderSpamWarning(root, { score: message.score ?? 0, flags: message.flags || [] }, onDelete);
+      });
+    }
   });
 
   // -------------------------------------------------------

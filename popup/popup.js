@@ -233,6 +233,13 @@ function initTemplates() {
 ===================================================== */
 
 function initDashboard() {
+    const oauthGate = document.getElementById("oauthGate");
+    const dashboardContent = document.getElementById("dashboardContent");
+    const btnConnect = document.getElementById("btnPopupConnect");
+    const btnDisconnect = document.getElementById("btnPopupDisconnect");
+    const msgOAuth = document.getElementById("msgPopupOAuth");
+    const connectedEmailEl = document.getElementById("connectedEmail");
+    const switchGmailBtn = document.getElementById("switchGmailBtn");
     const emailsProcessedEl = document.getElementById("metricEmailsProcessed");
     const autoHandledEl = document.getElementById("metricAutoHandled");
     const weekReceivedEl = document.getElementById("metricWeekReceived");
@@ -242,15 +249,65 @@ function initDashboard() {
     const statusEl = document.getElementById("dashboardStatus");
     const aiBodyEl = document.getElementById("aiSummaryBody");
     const aiStatusEl = document.getElementById("aiSummaryStatus");
-    const connectedEmailEl = document.getElementById("connectedEmail");
-    const switchGmailBtn = document.getElementById("switchGmailBtn");
 
-    if (!emailsProcessedEl || !autoHandledEl || !weekReceivedEl || !weekSentEl || !spamEl || !trashEl) {
-        return;
+    function showGate(show) {
+        if (oauthGate) oauthGate.classList.toggle("hidden", !show);
+        if (dashboardContent) dashboardContent.classList.toggle("hidden", show);
     }
 
-    function setStatus(text) {
+    function setDashStatus(text) {
         if (statusEl) statusEl.textContent = text || "";
+    }
+
+    // Check OAuth status on open (silent — no popup)
+    chrome.runtime.sendMessage({ type: "CHECK_OAUTH_STATUS" }, (res) => {
+        if (res && res.connected) {
+            showGate(false);
+            if (connectedEmailEl) connectedEmailEl.textContent = res.email || "Connected";
+            loadMetrics();
+        } else {
+            showGate(true);
+        }
+    });
+
+    // Connect button — interactive OAuth
+    if (btnConnect) {
+        btnConnect.addEventListener("click", () => {
+            if (msgOAuth) msgOAuth.textContent = "Connecting…";
+            btnConnect.disabled = true;
+            chrome.runtime.sendMessage({ type: "CONNECT_GMAIL_ACCOUNT" }, (res) => {
+                btnConnect.disabled = false;
+                if (res && res.success) {
+                    showGate(false);
+                    if (connectedEmailEl) connectedEmailEl.textContent = res.email || "Connected";
+                    if (msgOAuth) msgOAuth.textContent = "";
+                    loadMetrics();
+                } else {
+                    if (msgOAuth) msgOAuth.textContent = "Connection failed: " + (res?.error || "unknown error");
+                }
+            });
+        });
+    }
+
+    // Disconnect button
+    if (btnDisconnect) {
+        btnDisconnect.addEventListener("click", () => {
+            chrome.runtime.sendMessage({ type: "CLEAR_GMAIL_TOKEN" }, () => {
+                chrome.storage.local.set({ oauthConnected: false, oauthEmail: "" });
+                showGate(true);
+            });
+        });
+    }
+
+    // Switch account
+    if (switchGmailBtn) {
+        switchGmailBtn.addEventListener("click", () => {
+            chrome.runtime.sendMessage({ type: "CLEAR_GMAIL_TOKEN" }, () => {
+                chrome.storage.local.set({ oauthConnected: false, oauthEmail: "" });
+                // Re-trigger interactive connect
+                if (btnConnect) btnConnect.click();
+            });
+        });
     }
 
     function formatPercent(numerator, denom) {
@@ -258,10 +315,55 @@ function initDashboard() {
         return Math.round((numerator / denom) * 100);
     }
 
-    // -------------------------------------------------------
-    // Everything below requires OAuth — Coming Soon.
-    // The HTML overlay already blocks these visually.
-    // Listeners are intentionally disabled to prevent any
-    // accidental OAuth popup from firing.
-    // -------------------------------------------------------
+    function loadMetrics() {
+        chrome.runtime.sendMessage({ type: "GET_DASHBOARD_METRICS" }, (res) => {
+            if (!res || !res.success) {
+                setDashStatus(res?.error || "Failed to load metrics.");
+                return;
+            }
+
+            const local = res.localStats || {};
+            const gmail = res.gmail || {};
+
+            const totalProcessed = local.emailsAnalyzed || 0;
+            const autoHandled = (local.spamDetected || 0) + (local.emailsTrashed || 0) + (local.importantLabeled || 0);
+            const autoHandledPct = formatPercent(autoHandled, totalProcessed);
+
+            if (emailsProcessedEl) emailsProcessedEl.textContent = totalProcessed;
+            if (autoHandledEl) autoHandledEl.textContent = `${autoHandledPct}% auto‑handled`;
+            if (weekReceivedEl) weekReceivedEl.textContent = (gmail.weekly?.received ?? "--") + " received";
+            if (weekSentEl) weekSentEl.textContent = (gmail.weekly?.sent ?? "--") + " sent";
+            if (spamEl) spamEl.textContent = (local.spamDetected || "--") + " spam";
+            if (trashEl) trashEl.textContent = (local.emailsTrashed || "--") + " moved to trash";
+        });
+    }
+
+    // Quick actions
+    const actionMap = [
+        ["actionArchiveNewsletters", "ARCHIVE_NEWSLETTERS"],
+        ["actionSummarizeToday",     "SUMMARIZE_TODAY"],
+        ["actionShowUrgent",         "SHOW_ONLY_URGENT"],
+        ["actionAutoUnsub",          "AUTO_UNSUB_SUGGEST"],
+        ["actionAutoDeleteOld",      "AUTO_DELETE_OLD_IRRELEVANT"],
+    ];
+
+    actionMap.forEach(([elId, action]) => {
+        const btn = document.getElementById(elId);
+        if (!btn) return;
+        btn.addEventListener("click", () => {
+            setDashStatus("Running…");
+            if (aiStatusEl) aiStatusEl.textContent = "Working…";
+            chrome.runtime.sendMessage({ type: "RUN_ACTION", action }, (res) => {
+                if (!res || !res.success) {
+                    setDashStatus("Error: " + (res?.error || "unknown"));
+                    if (aiStatusEl) aiStatusEl.textContent = "Error";
+                    return;
+                }
+                setDashStatus(res.message || "Done.");
+                if (aiStatusEl) aiStatusEl.textContent = "Done";
+                if (aiBodyEl && res.digest) aiBodyEl.textContent = res.digest;
+                loadMetrics();
+            });
+        });
+    });
 }

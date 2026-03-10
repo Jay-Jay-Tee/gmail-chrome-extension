@@ -228,14 +228,6 @@ function renderCategory(root, category, labelApplied) {
   badge.textContent = category;
   row.appendChild(badge);
 
-  // Gmail label application requires OAuth — show coming-soon note instead
-  {
-    const tag = document.createElement("span");
-    tag.style.cssText = `font-size:${UI_TEXT_SIZE};color:#9aa0a6;display:inline-flex;align-items:center;gap:4px;`;
-    tag.innerHTML = `🔒 Gmail label sync <span style="font-size:10px;padding:1px 5px;background:#e8eaed;border-radius:8px;color:#5f6368;font-weight:600;">Coming Soon</span>`;
-    row.appendChild(tag);
-  }
-
   card.insertBefore(row, card.querySelector("button"));
 }
 
@@ -303,20 +295,27 @@ function renderSpamWarning(root, spamResult, onDelete) {
     card.insertBefore(flagList, card.querySelector("button"));
   }
 
-  // "Move to Trash" requires OAuth — show a disabled coming-soon chip instead
-  // if (isDanger) {
-  //   const comingSoonBtn = document.createElement("button");
-  //   comingSoonBtn.type = "button";
-  //   comingSoonBtn.disabled = true;
-  //   comingSoonBtn.style.cssText = `
-  //     margin-top: 8px; padding: 5px 12px; background: #f8f9fa;
-  //     border: 1px solid #dadce0; border-radius: 0; color: #9aa0a6;
-  //     font-size: ${UI_TEXT_SIZE}; cursor: not-allowed; font-family: inherit;
-  //     display: inline-flex; align-items: center; gap: 6px;
-  //   `;
-  //   comingSoonBtn.innerHTML = `🗑 Move to Trash <span style="font-size:10px;padding:1px 5px;background:#e8eaed;border-radius:8px;color:#5f6368;font-weight:600;">Coming Soon</span> `;
-  //   card.insertBefore(comingSoonBtn, card.querySelector("button"));
-  // }
+  // "Move to Trash" — only shown when OAuth is connected and email is dangerous
+  if (isDanger && typeof onDelete === "function") {
+    const trashBtn = document.createElement("button");
+    trashBtn.type = "button";
+    trashBtn.style.cssText = `
+      margin-top: 8px; padding: 5px 12px; background: #fff0f0;
+      border: 1px solid #c5221f; border-radius: 0; color: #c5221f;
+      font-size: ${UI_TEXT_SIZE}; cursor: pointer; font-family: inherit;
+      display: inline-flex; align-items: center; gap: 6px; font-weight: 500;
+    `;
+    trashBtn.textContent = "🗑 Move to Trash";
+    trashBtn.onmouseenter = () => { trashBtn.style.background = "#fce8e6"; };
+    trashBtn.onmouseleave = () => { trashBtn.style.background = "#fff0f0"; };
+    trashBtn.addEventListener("click", (e) => {
+      e.stopPropagation();
+      trashBtn.disabled = true;
+      trashBtn.textContent = "Moving...";
+      onDelete();
+    });
+    card.insertBefore(trashBtn, card.querySelector("button"));
+  }
 }
 
 // -------------------------------------------------------

@@ -509,9 +509,57 @@ chrome.runtime.onMessage.addListener((message, sender, sendResponse) => {
         .catch(err => sendResponse({ success: false, error: err.message }));
       return true;
 
+    case 'CHECK_OAUTH_STATUS':
+      // Silent check — does not prompt the user. Returns connected email if token works.
+      new Promise((resolve) => {
+        chrome.identity.getAuthToken({ interactive: false }, async (token) => {
+          if (chrome.runtime.lastError || !token) {
+            resolve({ connected: false });
+            return;
+          }
+          try {
+            const res = await fetch('https://www.googleapis.com/oauth2/v1/userinfo?alt=json', {
+              headers: { Authorization: `Bearer ${token}` }
+            });
+            if (!res.ok) { resolve({ connected: false }); return; }
+            const info = await res.json();
+            resolve({ connected: true, email: info.email || '' });
+          } catch (_) {
+            resolve({ connected: false });
+          }
+        });
+      })
+        .then((result) => {
+          // Cache result so popup and onboarding can read it synchronously
+          chrome.storage.local.set({ oauthConnected: result.connected, oauthEmail: result.email || '' });
+          sendResponse({ success: true, ...result });
+        });
+      return true;
+
     case 'CONNECT_GMAIL_ACCOUNT':
-      fetchDashboardMetrics()
-        .then((metrics) => sendResponse({ success: true, gmail: metrics }))
+      // Interactive OAuth connect — prompts the user
+      new Promise((resolve, reject) => {
+        chrome.identity.getAuthToken({ interactive: true }, async (token) => {
+          if (chrome.runtime.lastError || !token) {
+            reject(new Error(chrome.runtime.lastError?.message || 'Unable to get auth token'));
+            return;
+          }
+          try {
+            const res = await fetch('https://www.googleapis.com/oauth2/v1/userinfo?alt=json', {
+              headers: { Authorization: `Bearer ${token}` }
+            });
+            if (!res.ok) { reject(new Error('Could not fetch user info')); return; }
+            const info = await res.json();
+            resolve({ email: info.email || '' });
+          } catch (e) {
+            reject(e);
+          }
+        });
+      })
+        .then(({ email }) => {
+          chrome.storage.local.set({ oauthConnected: true, oauthEmail: email });
+          sendResponse({ success: true, email });
+        })
         .catch(err => sendResponse({ success: false, error: err.message }));
       return true;
 
